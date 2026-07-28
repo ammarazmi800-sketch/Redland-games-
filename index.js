@@ -27,25 +27,17 @@ function getUser(userId) {
     return userData[userId];
 }
 
-const gameData = {
-    لاعب: [
-        { name: "ميسي", image: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Lionel_Messi_20180626.jpg/800px-Lionel_Messi_20180626.jpg" },
-        { name: "رونالدو", image: "https://upload.wikimedia.org/wikipedia/commons/8/8c/Cristiano_Ronaldo_2018.jpg" }
-    ],
-    علم: [
-        { name: "السعودية", image: "https://flagcdn.com/w640/sa.png" },
-        { name: "مصر", image: "https://flagcdn.com/w640/eg.png" }
-    ],
-    حيوانات: [
-        { name: "اسد", image: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/73/Lion_waiting_in_Namibia.jpg/800px-Lion_waiting_in_Namibia.jpg" }
-    ],
-    شعار: [
-        { name: "نايك", image: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a6/Logo_NIKE.svg/800px-Logo_NIKE.svg.png" }
-    ]
-};
-
 client.once('ready', () => {
-    console.log(`✅ البوت يعمل باسم: ${client.user.tag}`);
+    console.log(`✅ البوت يعمل بنجاح باسم: ${client.user.tag}`);
+});
+
+// التعامل مع أوامر السلاش (Slash Commands) لمنع خطأ Application did not respond
+client.on('interactionCreate', async interaction => {
+    if (interaction.isChatInputCommand()) {
+        if (interaction.commandName === 'ping') {
+            await interaction.reply({ content: '🏓 Pong! البوت متصل وشغال تمام.', ephemeral: true });
+        }
+    }
 });
 
 client.on('messageCreate', async message => {
@@ -63,7 +55,7 @@ client.on('messageCreate', async message => {
         activeGames[message.channel.id] = true;
         let players = [message.author];
         const MAX_PLAYERS = 100;
-        const WAIT_TIME = 180000; // 3 دقائق بالملي ثانية
+        const WAIT_TIME = 180000; // 3 دقائق
 
         const getGameEmbed = () => new EmbedBuilder()
             .setColor(0x8E44AD)
@@ -106,6 +98,114 @@ client.on('messageCreate', async message => {
             } else if (i.customId === 'leave_mafia') {
                 if (!players.some(p => p.id === i.user.id)) {
                     return i.reply({ content: '⚠️ أنت لست باللعبة بالأصل!', ephemeral: true });
+                }
+                players = players.filter(p => p.id !== i.user.id);
+                await i.reply({ content: '🚪 تم خروجك من اللعبة.', ephemeral: true });
+                await gameMsg.edit({ embeds: [getGameEmbed()] });
+            }
+        });
+
+        collector.on('end', async () => {
+            row.components.forEach(c => c.setDisabled(true));
+            await gameMsg.edit({ components: [row] });
+
+            if (players.length < 3) {
+                delete activeGames[message.channel.id];
+                return message.channel.send('❌ تم إلغاء اللعبة لعدم اكتمال النصاب (المطلوب 3 لاعبين على الأقل).');
+            }
+
+            message.channel.send(`🎭 **تم تسجيل ${players.length} لاعبين! جاري توزيع الأدوار وبدء الجولة...**`);
+            delete activeGames[message.channel.id];
+        });
+    }
+
+    // === 🎡 لعبة الروليت (3 دقائق انضمام - حتى 100 لاعب) ===
+    if (command === 'روليت') {
+        if (activeGames[message.channel.id]) {
+            return message.reply('⚠️ هناك لعبة جارية في هذا الروم!');
+        }
+
+        activeGames[message.channel.id] = true;
+        let players = [message.author];
+        const MAX_PLAYERS = 100;
+        const WAIT_TIME = 180000; // 3 دقائق
+
+        const getRouletteEmbed = () => new EmbedBuilder()
+            .setColor(0xE74C3C)
+            .setTitle('🎡 روليت — لعبة الطرد الجماعية')
+            .setDescription(`👥 **اللاعبين الآن:** \`${players.length}/${MAX_PLAYERS}\`\n⏳ **ينتهي الانضمام:** <t:${Math.floor((Date.now() + WAIT_TIME) / 1000)}:R>\n\nاضغط زر **انضمام** للاشتراك!`)
+            .setFooter({ text: 'Hollywood Games' });
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('join_roulette')
+                .setLabel('انضمام 🎡')
+                .setStyle(ButtonStyle.Primary),
+            new ButtonBuilder()
+                .setCustomId('leave_roulette')
+                .setLabel('خروج 🚪')
+                .setStyle(ButtonStyle.Secondary)
+        );
+
+        const gameMsg = await message.channel.send({
+            embeds: [getRouletteEmbed()],
+            components: [row]
+        });
+
+        const collector = gameMsg.createMessageComponentCollector({
+            componentType: ComponentType.Button,
+            time: WAIT_TIME
+        });
+
+        collector.on('collect', async i => {
+            if (i.customId === 'join_roulette') {
+                if (players.some(p => p.id === i.user.id)) {
+                    return i.reply({ content: '⚠️ أنت مضاف باللعبة سابقاً!', ephemeral: true });
+                }
+                if (players.length >= MAX_PLAYERS) {
+                    return i.reply({ content: '❌ وصلت اللعبة للحد الأقصى (100 لاعب)!', ephemeral: true });
+                }
+                players.push(i.user);
+                await i.reply({ content: '✅ تم الانضمام للروليت!', ephemeral: true });
+                await gameMsg.edit({ embeds: [getRouletteEmbed()] });
+            } else if (i.customId === 'leave_roulette') {
+                players = players.filter(p => p.id !== i.user.id);
+                await i.reply({ content: '🚪 خرجت من اللعبة.', ephemeral: true });
+                await gameMsg.edit({ embeds: [getRouletteEmbed()] });
+            }
+        });
+
+        collector.on('end', async () => {
+            row.components.forEach(c => c.setDisabled(true));
+            await gameMsg.edit({ components: [row] });
+
+            if (players.length < 2) {
+                delete activeGames[message.channel.id];
+                return message.channel.send('❌ تم إلغاء الروليت لعدم وجود لاعبين كافيين.');
+            }
+
+            message.channel.send(`💥 **بدأت التصفيات بين ${players.length} لاعبين!**`);
+
+            const interval = setInterval(() => {
+                if (players.length === 1) {
+                    clearInterval(interval);
+                    const winner = players[0];
+                    const p = getUser(winner.id);
+                    p.coins += 250;
+                    p.wins += 1;
+                    delete activeGames[message.channel.id];
+                    return message.channel.send(`🏆 **الفائز الأخير في الروليت هو <@${winner.id}>!** وفاز بـ **250 عملة** 💰!`);
+                }
+
+                const eliminatedIndex = Math.floor(Math.random() * players.length);
+                const eliminated = players.splice(eliminatedIndex, 1)[0];
+                message.channel.send(`☠️ تم استبعاد **${eliminated.username}**! المتبقين: **${players.length}**`);
+            }, 2500);
+        });
+    }
+});
+
+client.login(process.env.TOKEN);
                 }
                 players = players.filter(p => p.id !== i.user.id);
                 await i.reply({ content: '🚪 تم خروجك من اللعبة.', ephemeral: true });
