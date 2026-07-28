@@ -1,4 +1,12 @@
-const { Client, GatewayIntentBits, EmbedBuilder, PermissionsBitField } = require('discord.js');
+const { 
+    Client, 
+    GatewayIntentBits, 
+    EmbedBuilder, 
+    ActionRowBuilder, 
+    ButtonBuilder, 
+    ButtonStyle, 
+    ComponentType 
+} = require('discord.js');
 
 const client = new Client({
     intents: [
@@ -8,103 +16,204 @@ const client = new Client({
     ]
 });
 
-// البادئة الخاصة بالأوامر
 const PREFIX = '+';
-
-// قاعدة بيانات بسيطة في الذاكرة للعملات والـ XP
 const userData = {};
+const activeGames = {};
 
 function getUser(userId) {
     if (!userData[userId]) {
-        userData[userId] = { coins: 100, xp: 0, lastDaily: 0 };
+        userData[userId] = { coins: 100, xp: 0, wins: 0 };
     }
     return userData[userId];
 }
 
-// قائمة كلمات للعبة أسرع كتابة
-const fastWords = [
-    "ديسكورد", "برمجة", "ريدلاند", "العاب", "تحدي", "سريع", "سيرفر", "عبقري", "مستقبل", "إبداع"
-];
+const gameData = {
+    لاعب: [
+        { name: "ميسي", image: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Lionel_Messi_20180626.jpg/800px-Lionel_Messi_20180626.jpg" },
+        { name: "رونالدو", image: "https://upload.wikimedia.org/wikipedia/commons/8/8c/Cristiano_Ronaldo_2018.jpg" }
+    ],
+    علم: [
+        { name: "السعودية", image: "https://flagcdn.com/w640/sa.png" },
+        { name: "مصر", image: "https://flagcdn.com/w640/eg.png" }
+    ],
+    حيوانات: [
+        { name: "اسد", image: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/73/Lion_waiting_in_Namibia.jpg/800px-Lion_waiting_in_Namibia.jpg" }
+    ],
+    شعار: [
+        { name: "نايك", image: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a6/Logo_NIKE.svg/800px-Logo_NIKE.svg.png" }
+    ]
+};
 
 client.once('ready', () => {
-    console.log(`✅ تم تشغيل البوت بنجاح باسم: ${client.user.tag}`);
+    console.log(`✅ البوت يعمل باسم: ${client.user.tag}`);
 });
 
-// التفاعل مع الرسائل بالبادئة +
 client.on('messageCreate', async message => {
     if (message.author.bot || !message.content.startsWith(PREFIX)) return;
 
     const args = message.content.slice(PREFIX.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
-    const player = getUser(message.author.id);
 
-    // أمر +help أو +مساعدة أو +اوامر
-    if (command === 'help' || command === 'مساعدة' || command === 'اوامر') {
-        const helpEmbed = new EmbedBuilder()
-            .setColor(0xE74C3C)
-            .setTitle('🎮 قائمة أوامر Redland Games')
-            .setDescription('أهلاً بك! هذه قائمة جميع الأوامر والألعاب المتاحة حالياً باستخدام البادئة `+`')
-            .addFields(
-                { 
-                    name: '🎁 الاقتصاد والمكافآت والجرائم', 
-                    value: '`+يومي` - للحصول على المكافأة اليومية (250 عملة + 50 XP)\n`+فلوسي` - لفتح ملفك الشخصي ورؤية عملاتك والـ XP\n`+شراء` - معلومات شراء العملات بالكريدت' 
-                },
-                { 
-                    name: '⚡ الألعاب المتوفرة', 
-                    value: '`+اسرع` - التنافس في لعبة أسرع كتابة وكسب العملات\n`+مافيا` - بدء لعبة المافيا مع الأعضاء' 
-                },
-                { 
-                    name: '👑 أوامر الإدارة والتحكم', 
-                    value: '`+اضف_نقاط @العضو العدد` - لإضافة نقاط أو عملات لأي لاعب (للمشرفين فقط)' 
-                },
-                { 
-                    name: '⚙️ أوامر النظام', 
-                    value: '`+بينج` - لفحص سرعة استجابة البوت' 
+    // === 🔪 لعبة مافيا (3 دقائق وقت انضمام - حتى 100 لاعب) ===
+    if (command === 'مافيا') {
+        if (activeGames[message.channel.id]) {
+            return message.reply('⚠️ هناك لعبة جارية بالفعل في هذا الروم!');
+        }
+
+        activeGames[message.channel.id] = true;
+        let players = [message.author];
+        const MAX_PLAYERS = 100;
+        const WAIT_TIME = 180000; // 3 دقائق بالملي ثانية
+
+        const getGameEmbed = () => new EmbedBuilder()
+            .setColor(0x8E44AD)
+            .setTitle('🔪 مافيا — لعبة الأدوار')
+            .setDescription(`👥 **اللاعبين الآن:** \`${players.length}/${MAX_PLAYERS}\`\n⏳ **ينتهي الانضمام:** <t:${Math.floor((Date.now() + WAIT_TIME) / 1000)}:R>\n\nاضغط على **دخول** للانضمام إلى اللعبة!`)
+            .setFooter({ text: 'Hollywood Games' });
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('join_mafia')
+                .setLabel('دخول 🎭')
+                .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+                .setCustomId('leave_mafia')
+                .setLabel('خروج 🚪')
+                .setStyle(ButtonStyle.Danger)
+        );
+
+        const gameMsg = await message.channel.send({
+            embeds: [getGameEmbed()],
+            components: [row]
+        });
+
+        const collector = gameMsg.createMessageComponentCollector({
+            componentType: ComponentType.Button,
+            time: WAIT_TIME
+        });
+
+        collector.on('collect', async i => {
+            if (i.customId === 'join_mafia') {
+                if (players.some(p => p.id === i.user.id)) {
+                    return i.reply({ content: '⚠️ أنت مشترك بالفعل في اللعبة!', ephemeral: true });
                 }
-            )
-            .setFooter({ text: 'Redland Games • متجر وشراء النقاط مفعّل!' })
-            .setTimestamp();
+                if (players.length >= MAX_PLAYERS) {
+                    return i.reply({ content: '❌ اللعبة مكتملة (100/100)!', ephemeral: true });
+                }
+                players.push(i.user);
+                await i.reply({ content: '✅ تم انضمامك للعبة بنجاح!', ephemeral: true });
+                await gameMsg.edit({ embeds: [getGameEmbed()] });
+            } else if (i.customId === 'leave_mafia') {
+                if (!players.some(p => p.id === i.user.id)) {
+                    return i.reply({ content: '⚠️ أنت لست باللعبة بالأصل!', ephemeral: true });
+                }
+                players = players.filter(p => p.id !== i.user.id);
+                await i.reply({ content: '🚪 تم خروجك من اللعبة.', ephemeral: true });
+                await gameMsg.edit({ embeds: [getGameEmbed()] });
+            }
+        });
 
-        return message.reply({ embeds: [helpEmbed] });
+        collector.on('end', async () => {
+            row.components.forEach(c => c.setDisabled(true));
+            await gameMsg.edit({ components: [row] });
+
+            if (players.length < 3) {
+                delete activeGames[message.channel.id];
+                return message.channel.send('❌ تم إلغاء اللعبة لعدم اكتمال النصاب (المطلوب 3 لاعبين على الأقل).');
+            }
+
+            message.channel.send(`🎭 **تم تسجيل ${players.length} لاعبين! جاري توزيع الأدوار وبدء الجولة...**`);
+            delete activeGames[message.channel.id];
+        });
     }
 
-    // أمر إدارة: إضافة نقاط/عملات لنفسك أو لأي عضو
-    if (command === 'اضف_نقاط' || command === 'addcoins') {
-        // التحقق من صلاحيات المشرف
-        if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return message.reply('❌ هذا الأمر مخصص للإدارة فقط!');
+    // === 🎡 لعبة الروليت (3 دقائق انضمام - حتى 100 لاعب) ===
+    if (command === 'روليت') {
+        if (activeGames[message.channel.id]) {
+            return message.reply('⚠️ هناك لعبة جارية في هذا الروم!');
         }
 
-        const targetUser = message.mentions.users.first() || message.author;
-        const amount = parseInt(args[1]) || parseInt(args[0]);
+        activeGames[message.channel.id] = true;
+        let players = [message.author];
+        const MAX_PLAYERS = 100;
+        const WAIT_TIME = 180000; // 3 دقائق
 
-        if (!amount || isNaN(amount)) {
-            return message.reply('⚠️ يرجى تحديد عدد النقاط الصحيح! مثال: `+اضف_نقاط 500` أو `+اضف_نقاط @عبقري 500`');
-        }
+        const getRouletteEmbed = () => new EmbedBuilder()
+            .setColor(0xE74C3C)
+            .setTitle('🎡 روليت — لعبة الطرد الجماعية')
+            .setDescription(`👥 **اللاعبين الآن:** \`${players.length}/${MAX_PLAYERS}\`\n⏳ **ينتهي الانضمام:** <t:${Math.floor((Date.now() + WAIT_TIME) / 1000)}:R>\n\nاضغط زر **انضمام** للاشتراك!`)
+            .setFooter({ text: 'Hollywood Games' });
 
-        const targetPlayer = getUser(targetUser.id);
-        targetPlayer.coins += amount;
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('join_roulette')
+                .setLabel('انضمام 🎡')
+                .setStyle(ButtonStyle.Primary),
+            new ButtonBuilder()
+                .setCustomId('leave_roulette')
+                .setLabel('خروج 🚪')
+                .setStyle(ButtonStyle.Secondary)
+        );
 
-        return message.reply(`✅ تم بنجاح إضافة **${amount}** عملة/نقطة إلى حساب **${targetUser.username}**! 💰\nرصيده الحالي: **${targetPlayer.coins}** عملة.`);
+        const gameMsg = await message.channel.send({
+            embeds: [getRouletteEmbed()],
+            components: [row]
+        });
+
+        const collector = gameMsg.createMessageComponentCollector({
+            componentType: ComponentType.Button,
+            time: WAIT_TIME
+        });
+
+        collector.on('collect', async i => {
+            if (i.customId === 'join_roulette') {
+                if (players.some(p => p.id === i.user.id)) {
+                    return i.reply({ content: '⚠️ أنت مضاف باللعبة سابقاً!', ephemeral: true });
+                }
+                if (players.length >= MAX_PLAYERS) {
+                    return i.reply({ content: '❌ وصلت اللعبة للحد الأقصى (100 لاعب)!', ephemeral: true });
+                }
+                players.push(i.user);
+                await i.reply({ content: '✅ تم الانضمام للروليت!', ephemeral: true });
+                await gameMsg.edit({ embeds: [getRouletteEmbed()] });
+            } else if (i.customId === 'leave_roulette') {
+                players = players.filter(p => p.id !== i.user.id);
+                await i.reply({ content: '🚪 خرجت من اللعبة.', ephemeral: true });
+                await gameMsg.edit({ embeds: [getRouletteEmbed()] });
+            }
+        });
+
+        collector.on('end', async () => {
+            row.components.forEach(c => c.setDisabled(true));
+            await gameMsg.edit({ components: [row] });
+
+            if (players.length < 2) {
+                delete activeGames[message.channel.id];
+                return message.channel.send('❌ تم إلغاء الروليت لعدم وجود لاعبين كافيين.');
+            }
+
+            message.channel.send(`💥 **بدأت التصفيات بين ${players.length} لاعبين!**`);
+
+            const interval = setInterval(() => {
+                if (players.length === 1) {
+                    clearInterval(interval);
+                    const winner = players[0];
+                    const p = getUser(winner.id);
+                    p.coins += 250;
+                    p.wins += 1;
+                    delete activeGames[message.channel.id];
+                    return message.channel.send(`🏆 **الفائز الأخير في الروليت هو <@${winner.id}>!** وفاز بـ **250 عملة** 💰!`);
+                }
+
+                const eliminatedIndex = Math.floor(Math.random() * players.length);
+                const eliminated = players.splice(eliminatedIndex, 1)[0];
+                message.channel.send(`☠️ تم استبعاد **${eliminated.username}**! المتبقين: **${players.length}**`);
+            }, 2500);
+        });
     }
+});
 
-    // أمر +شراء (متجر العملات والكريدت)
-    if (command === 'شراء' || command === 'متجر' || command === 'buy') {
-        const shopEmbed = new EmbedBuilder()
-            .setColor(0xF1C40F)
-            .setTitle('🛒 متجر نقاط وعملات Redland')
-            .setDescription('يمكنك شراء العملات لاستخدامها في ألعاب المافيا والروليت وغيرها عَبْر الكريدت!')
-            .addFields(
-                { name: '💎 السعر الرسمي', value: '**100 عملة = 5,000,000 (5M) كريدت**', inline: false },
-                { name: '📜 طريقة الشراء', value: 'قم بتحويل المبلغ للبوت باستخدام برو بوب عبر الأمر:\n`#credit <@' + client.user.id + '> 5000000`\nثم تواصل مع الإدارة لشحن النقاط فوراً!', inline: false }
-            )
-            .setFooter({ text: 'للشراء المباشر أو الاستفسارات تواصل مع إداريي السيرفر.' });
-
-        return message.reply({ embeds: [shopEmbed] });
-    }
-
-    // أمر +بينج
-    if (command === 'ping' || command === 'بينج') {
+client.login(process.env.TOKEN);
         return message.reply('pong! 🏓 البوت يعمل بنجاح!');
     }
 
